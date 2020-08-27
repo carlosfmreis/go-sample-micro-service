@@ -1,1 +1,1 @@
-# go-sample-micro-service
+# Sample Micro-Service in Go
