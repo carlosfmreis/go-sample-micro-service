@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
-	"flag"
-	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/carlosfmreis/sample-microservice/user"
 	_ "github.com/go-sql-driver/mysql"
 )
 
-const port = "8080"
+const port = ":8080"
 
 const dataBaseHost = "localhost"
 const dataBasePort = "3306"
@@ -24,40 +24,46 @@ const dataBaseName = "test"
 const dbsource = dataBaseUser + ":" + dataBasePassword + "@tcp(" + dataBaseHost + ":" + dataBasePort + ")/" + dataBaseName
 
 func main() {
-	httpAddress := flag.String("http", ":"+port, "http listen address")
-
-	var db *sql.DB
-	{
-		var err error
-		db, err = sql.Open("mysql", dbsource)
-		defer db.Close()
-		if err != nil {
-			os.Exit(-1)
-		}
-
+	file, err := os.OpenFile("logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		log.Fatal(err)
 	}
+	log.SetOutput(file)
 
-	flag.Parse()
-	context := context.Background()
-	var service user.Service
-	{
-		repository := user.NewRepository(db)
-		service = user.NewService(repository)
+	db, err := sql.Open("mysql", dbsource)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer db.Close()
+	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(10)
 
-	errs := make(chan error)
+	repository := user.NewRepository(db)
 
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-		errs <- fmt.Errorf("%s", <-c)
-	}()
+	service := user.NewService(repository)
 
 	endpoints := user.MakeEndpoints(service)
 
+	context := context.Background()
+	handler := user.NewServer(context, endpoints)
+
+	log.Println("Users Micro-Service listening on", port)
+
+	setupCloseHandler()
+
+	err = http.ListenAndServe(port, handler)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func setupCloseHandler() {
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		fmt.Println("Microservice listening on ", *httpAddress)
-		handler := user.NewServer(context, endpoints)
-		errs <- http.ListenAndServe(*httpAddress, handler)
+		<-c
+		log.Fatal("Users Micro-Service stopped")
+		os.Exit(0)
 	}()
 }
