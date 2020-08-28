@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/carlosfmreis/sample-microservice/user"
+	"github.com/carlosfmreis/go-sample-micro-service/user"
 	_ "github.com/go-sql-driver/mysql"
 )
 
